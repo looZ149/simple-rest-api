@@ -1,4 +1,7 @@
-using SampleTracker.model;
+using SampleTracker.Model;
+using SampleTracker.Data;
+using Microsoft.EntityFrameworkCore;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -6,53 +9,76 @@ var builder = WebApplication.CreateBuilder(args);
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
+
+// DI to set up the Connection properly
+var connectionString = builder.Configuration.GetConnectionString("Default");
+builder.Services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
+
 var app = builder.Build();
 
+// Auto migrates the DB on every startup
+using (var scope = app.Services.CreateScope()) {
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    db.Database.Migrate();
+}
+
 // Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
+if (app.Environment.IsDevelopment()) {
     app.MapOpenApi();
 }
 
 app.UseHttpsRedirection();
 
 
-//We just define a hardcoded list for now
-var samples = new List<Sample>
-{
-    new Sample { Id = 1, FileName = "dropper.exe", Sha256 = "abcdef173", Note = "Themida Packed"},
-    new Sample { Id = 2, FileName = "loader.dll", Sha256 = "defgawd37213", Note = "VMProtect"}
-};
+app.MapGet("/samples", async (AppDbContext db) => 
+    await db.Samples.ToListAsync());
 
-app.MapGet("/samples", () => samples);
-
-app.MapGet("/samples/{id:int}", (int id) =>
-{
-    var sample = samples.FirstOrDefault(s => s.Id == id);
+app.MapGet("/samples/{id:int}", async (AppDbContext db, int id) => {
+    var sample = await db.Samples.FirstOrDefaultAsync(s => s.Id == id);
 
     return sample is not null
         ? Results.Ok(sample)
         : Results.NotFound();
 });
 
-// ASP.NET automatically deserializes the JSON request body into a full sample object 
-app.MapPost("/samples", (Sample sample) =>
-{
-    sample.Id = samples.Count == 0 ? 1 : samples.Max(s => s.Id!.Value) + 1;
-    samples.Add(sample);
+app.MapPost("/samples", async (AppDbContext db, Sample sample) => {
+    if (sample.FileName is null)
+        return Results.BadRequest();
+    if (sample.Note is null)
+        sample.Note = "No note added";
+
+    if (sample.Sha256 is not null && await db.Samples.AnyAsync(s => s.Sha256 == sample.Sha256))
+        return Results.Conflict();
+
+    db.Samples.Add(sample);
+    await db.SaveChangesAsync();
     return Results.Created($"/samples/{sample.Id}", sample);
 });
 
-app.MapDelete("samples/{id:int}", (int id) =>
-{
-    var sample = samples.FirstOrDefault(s => s.Id == id);
+app.MapPatch("/samples/{id:int}", async (AppDbContext db, int id, Sample patch) => {
+    var sample = await db.Samples.FirstOrDefaultAsync(s => s.Id == id);
+    if (sample is null)
+        return Results.NotFound();
+    if (patch.FileName is not null)
+        sample.FileName = patch.FileName;
+    if (patch.Sha256 is not null)
+        sample.Sha256 = patch.Sha256;
+    if (patch.Note is not null)
+        sample.Note = patch.Note;
+
+    await db.SaveChangesAsync();
+    return Results.Ok(sample);
+
+});
+
+app.MapDelete("/samples/{id:int}", async (AppDbContext db, int id) => {
+    var sample = await db.Samples.FirstOrDefaultAsync(s => s.Id == id);
     if (sample is null)
         return Results.NotFound();
 
-    samples.Remove(sample);
+    db.Samples.Remove(sample);
+    await db.SaveChangesAsync();
     return Results.NoContent();
 });
 
 app.Run();
-
-

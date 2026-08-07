@@ -1,0 +1,7 @@
+root = true
+
+[*.cs]
+# Everything else stays at C#/Rider defaults.
+# Only override: opening brace stays on the same line as the declaration
+# (K&R style) instead of C#'s default Allman style (brace on its own line).
+csharp_new_line_before_open_brace = none

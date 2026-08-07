@@ -1,13 +1,13 @@
-namespace SampleTracker.model;
+namespace SampleTracker.Model;
 
 public class Sample
 {
-    private int? id;
+    private int id;
     private string? filename;
     private string? sha256;
     private string? note;
 
-    public int? Id
+    public int Id
     {
         get => id; 
         set => id = value;
